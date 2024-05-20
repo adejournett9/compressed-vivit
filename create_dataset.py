@@ -9,17 +9,20 @@ import numpy as np
 
 import random
 
+from extract import decompress
+
 from torchvision.transforms import v2
 
 class LazyLoaderDataset(Dataset):
-    def __init__(self, path_list, labels, batch_size, num_frames):
+    def __init__(self, path_list, labels, batch_size, num_frames, use_motion=False):
         self.paths = path_list
         self.labels = labels
         self.batch_size = batch_size
         self.path_idx = [i for i in range(len(self.paths))]
         self.num_frames = num_frames
+        self.use_motion = use_motion
 
-        print(int(round(len(self.paths) / 64.0) * 16))
+        print(int(round(len(self.paths) / 256.0) * 16))
         #self.tensors = (yield self.__getitem__(1), self.labels)
 
         self.transforms = v2.Compose([
@@ -32,7 +35,20 @@ class LazyLoaderDataset(Dataset):
 
     def __len__(self):
         l = int(2 ** (np.ceil(np.log2(len(self.paths))))) #int(len(self.paths) // 10)
-        return int(round(len(self.paths) / 16.0) * 16)
+        return int(round(len(self.paths) / 256.0) * 16)
+    
+    def get_video(self, path):
+        with torch.no_grad():
+            vid = None
+            if self.use_motion == True:
+                vid = decompress(path) / 255.0
+            else:
+                vid = read_video(path, output_format="TCHW", pts_unit='sec')
+                vid = vid[0]
+                start_frame = 0 if vid.shape[0] <= self.num_frames+1 else random.randint(0, (vid.shape[0] - 1) - self.num_frames)
+                vid = vid[start_frame:start_frame + self.num_frames,:,:,:] / 255.0 #normalize
+        
+            return vid
     
     def __getitem__(self, idx):
         with torch.no_grad():
@@ -41,28 +57,29 @@ class LazyLoaderDataset(Dataset):
 
             vid = None
             try:
-                vid = read_video(path, output_format="TCHW", pts_unit='sec')
+                vid = self.get_video(path)
             except:
                 path_idx = random.choice(self.path_idx)#, k=1)
                 path = self.paths[path_idx]
-                vid = read_video(path, output_format="TCHW", pts_unit='sec')
-            vid = vid[0]
-            start_frame = 0 if vid.shape[0] <= self.num_frames+1 else random.randint(0, (vid.shape[0] - 1) - self.num_frames)
-            vid = vid[start_frame:start_frame + self.num_frames,:,:,:] / 255.0 #normalize
+                vid = self.get_video(path)
+            
 
-            if vid.shape[0] < self.num_frames:
-                os.system("rm \"{}\"".format(path))
-                print("ER", vid.shape)
-                path_idx = random.choice(self.path_idx)#, k=1)
-                path = self.paths[path_idx]
+            # if vid.shape[0] < self.num_frames:
+            #     os.system("rm \"{}\"".format(path))
+            #     print("ER", vid.shape)
+            #     path_idx = random.choice(self.path_idx)#, k=1)
+            #     path = self.paths[path_idx]
 
-                vid = read_video(path, output_format="TCHW", pts_unit='sec')
-                vid = vid[0]
-                vid = vid[:self.num_frames,:,:,:] / 255.0 #normalize
+            #     vid = read_video(path, output_format="TCHW", pts_unit='sec')
+            #     vid = vid[0]
+            #     vid = vid[:self.num_frames,:,:,:] / 255.0 #normalize
 
             label = self.labels[path_idx]
+            #print("Bef trans", vid.shape)
+            trans = self.transforms(vid)
 
-            return self.transforms(vid), label
+            print("After trans", trans.shape, vid.shape)
+            return trans, label
     
 
 def get_label(csv_reader, cls, tag):
@@ -72,7 +89,7 @@ def get_label(csv_reader, cls, tag):
     return None
 
 
-def load_dataset(vid_dir, label_file, batch_size, num_frames):
+def load_dataset(vid_dir, label_file, batch_size, num_frames, use_compressed_data):
     classes = os.listdir(vid_dir)
     reader = csv.reader(open(label_file, 'r'), delimiter=',')
 
@@ -112,6 +129,6 @@ def load_dataset(vid_dir, label_file, batch_size, num_frames):
     numeric_labels = le.fit_transform(labels)
     labels = torch.tensor(numeric_labels)
 
-    return LazyLoaderDataset(paths, labels, batch_size, num_frames)
+    return LazyLoaderDataset(paths, labels, batch_size, num_frames, use_compressed_data)
 
 

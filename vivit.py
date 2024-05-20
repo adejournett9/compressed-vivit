@@ -54,7 +54,7 @@ class ViT(nn.Module):
 class ViTPatch(nn.Module):
     def __init__(self, channels, patch_size, embedding_dims):
         super().__init__()
-        self.conv = nn.Conv3d(channels, embedding_dims, kernel_size=patch_size, stride=patch_size)
+        self.conv = nn.Conv3d(channels, embedding_dims, kernel_size=patch_size, stride=patch_size, groups=1)
         #self.n_patches = 196
 
     def forward(self, img):
@@ -62,8 +62,9 @@ class ViTPatch(nn.Module):
         #print(img.shape)
         patches = img.permute(0, 2, 1, 3, 4)
 
-        #print(patches.shape)
+        #print("C bef:", patches.shape, img.shape)
         patches = self.conv(patches)
+        #print(patches.shape)
 
         #print(patches.shape)
         patches = patches.flatten(2).transpose(1,2)
@@ -73,12 +74,12 @@ class ViTPatch(nn.Module):
 
 
 class VideoTransformer(nn.Module):
-    def __init__(self, img_shape, patch_size, embed_dims, num_heads, layers, dropout=0.1):
+    def __init__(self, img_shape, patch_size, embed_dims, num_heads, layers, dropout=0.1, in_channels=3):
         super().__init__()
         num_patch = 196#(img_shape[0] * img_shape[1] * img_shape[2]) // (patch_size **3)
 
         print(num_patch)
-        self.patch_embed = ViTPatch(3, patch_size, embed_dims)
+        self.patch_embed = ViTPatch(in_channels, patch_size, embed_dims)
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dims))
         self.pos_embed = nn.Parameter(
                 torch.zeros(1, 1 + num_patch, embed_dims)
@@ -106,6 +107,8 @@ class VideoTransformer(nn.Module):
         #print(x.shape, self.pos_embed.shape)
         x = x + self.pos_embed
         x = self.pos_drop(x)
+
+        print(x.shape)
         for block in self.blocks:
             x = block(x)
 
