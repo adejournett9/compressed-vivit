@@ -4,7 +4,7 @@ import os
 import matplotlib.pyplot as plt
 
 def main():
-    folder = "fmt_videos_train"
+    folder = "test_vids"
     classes = os.listdir(folder)
 
     p_frames = 0
@@ -48,8 +48,8 @@ def main():
     print("Max", max_p_frames)
 
     fig, ax = plt.subplots(1,2)
-    ax[0].hist(frame_hist)
-    ax[1].hist(i_frame_hist)
+    ax[0].hist(frame_hist, density=True)
+    ax[1].hist(i_frame_hist, density=True)
     plt.show()
 
 if __name__ == "__main__":

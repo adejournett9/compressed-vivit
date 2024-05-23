@@ -33,32 +33,56 @@ def identify_block(motion_vector, frame_shape):
     mv_y_origin = torch.where((mv_x_origin < 0) | (mv_y_origin < 0), motion_vector[:,6], motion_vector[:,4])
 
     H, xedges, yedges, binnumber = scipy.stats.binned_statistic_2d(
-    mv_x_origin.numpy(), mv_y_origin.numpy(), None, 'count', expand_binnumbers=True, bins=[bins_x, bins_y])
+    mv_x_origin.cpu().numpy(), mv_y_origin.cpu().numpy(), None, 'count', expand_binnumbers=True, bins=[bins_x, bins_y])
 
-    return torch.from_numpy(binnumber)
-
-def create_block(motion_vector):
-    block = np.zeros((16,16,6))
-    block[:, :, :6] = motion_vector
-    return block
+    return torch.from_numpy(binnumber).cuda()
 
 def export_motion_vectors(motion_vectors):
-    mv_array = torch.zeros((224,224,6))
+    mv_array = torch.zeros((224,224,6)).cuda()
     #pack motion vectors. Not space efficient (yet), but video convolution reduces the data to Tx14x14x6
     #mv
+    if motion_vectors.shape[0] == 0:
+        return mv_array
     block_idx = identify_block(motion_vectors, None)
     num_mvs = motion_vectors.shape[0]
     i = 0
     for mv in torch.split(motion_vectors, num_mvs):
-        # if mv[0, 3] != mv[0,5]:
-        #     print("M", mv[0, :])
-        #block = create_block(mv[0, 3:9].reshape(-1))
         id_x = block_idx[0,i] - 1
         id_y = block_idx[1,i] - 1
         mv_array[16*id_x:16*(id_x+1), 16*id_y:16*(id_y+1), :] = mv[0, 3:9].reshape(-1)
         i += 1
 
     return mv_array
+
+def decompress_intra(path, limit=16):
+     with torch.no_grad():
+        cap = VideoCap()
+        success = cap.open(path)
+        if not success:
+            return None
+
+        frames = None
+        frame_ct = 0
+        while success:
+            success, frame, motion_vectors, frame_type, timestamp = cap.read()
+            if not success or frame_ct > 224:
+                break
+
+            if frame_type == 'I':
+                frame = torch.from_numpy(frame)
+                frame = torch.dstack((frame[:, :, 2], frame[:, :, 1], frame[:, :, 0])).reshape(224, 224, 3)
+                if frames is None:
+                    frames = frame.reshape(1, 224, 224, 3)
+                else:
+                    frames = torch.cat((frames, frame.reshape(1,224,224,3)))
+                frame_ct += 1
+        frames = frames[:limit, :, :, :]
+        #print(frames.shape[0])
+        while frames.shape[0] < limit:
+            frames = torch.cat((frames, torch.zeros(1,224,224,3)))
+        
+        frames = frames.permute(0, 3, 1, 2)
+        return frames
 
 def decompress(path):
     with torch.no_grad():
@@ -76,7 +100,7 @@ def decompress(path):
             if not success or frame_ct > 224:
                 break
             if frame_type == 'P':
-                mv_arr = export_motion_vectors(torch.from_numpy(motion_vectors))
+                mv_arr = export_motion_vectors(torch.from_numpy(motion_vectors).cuda())
                 mv_arr = mv_arr.reshape(1, mv_arr.shape[0], mv_arr.shape[1], mv_arr.shape[2])
                 if mvs is None:
                     mvs = mv_arr
@@ -85,8 +109,8 @@ def decompress(path):
             elif frame_type == "I":
                 frame = np.dstack((frame[:, :, 2], frame[:, :, 1], frame[:, :, 0])).reshape(224, 224, 3)
                 if init_frame is None:
-                    init_frame = torch.from_numpy(frame)#.cuda()
-                last_frame = torch.from_numpy(frame)#.cuda()
+                    init_frame = torch.from_numpy(frame).cuda()
+                last_frame = torch.from_numpy(frame).cuda()
                 #print(last_frame.device)
             
             frame_ct += 1
@@ -98,24 +122,31 @@ def decompress(path):
 
 
         while mvs.shape[0] < 16:
-            mvs = torch.cat((mvs, torch.zeros((1, 224, 224, 6))))
+            mvs = torch.cat((mvs, torch.zeros((1, 224, 224, 6)).cuda()))
         
         mvs = mvs.permute(0, 3, 1, 2)
         
         if(mvs.shape[0] != 16 or mvs.shape[1] != 6):
             print("ERROR", mvs.shape)
-            return torch.zeros(16, 6, 224, 224)
+            return torch.zeros(16, 6, 224, 224).cuda()
 
-        # np.save(path[:-4] + ".npy", mvs.cpu())
+        np.savez_compressed(path[:-4], a=mvs.cpu())
         #ani = animation.ArtistAnimation(fig, frames, interval=50, repeat_delay=1000)
         
         #plt.show()
-        gc.collect()  
+        #gc.collect()  
         return mvs
+    
+def decompress_fast(path):
+    npy = path[:-4] + ".npz"
+
+    if os.path.exists(npy):
+        return torch.from_numpy(np.load(npy)['a'])
+    return None
 
 def main():
     start = time.time()
-    folder = "fmt_videos_fps"
+    folder = "fmt_videos_test"
     classes = os.listdir(folder)
 
     num_vids = 0
@@ -126,8 +157,11 @@ def main():
 
         for vid in vids:
             vpath = os.path.join(clsdir, vid)
-            decompress(vpath)
-            num_vids += 1
+            if not os.path.exists(vpath[:-4] + ".npz"):
+                decompress(vpath)
+                num_vids += 1
+                print(num_vids)
+                #x = np.load(vpath[:-4] + ".npz")
 
     print("End", time.time() - start)
     print("Vids processed: ", num_vids)

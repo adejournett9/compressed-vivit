@@ -1,5 +1,4 @@
 import torch.nn as nn
-from einops import rearrange
 import torch
 
 class MLP(nn.Module):
@@ -55,8 +54,6 @@ class ViTPatch(nn.Module):
     def __init__(self, channels, patch_size, embedding_dims):
         super().__init__()
         self.conv = nn.Conv3d(channels, embedding_dims, kernel_size=patch_size, stride=patch_size, groups=1)
-        #self.n_patches = 196
-
     def forward(self, img):
         #swap the order of channels and T (frames) for conv
         #print(img.shape)
@@ -68,15 +65,19 @@ class ViTPatch(nn.Module):
 
         #print(patches.shape)
         patches = patches.flatten(2).transpose(1,2)
+        
+        #ONLY IF BATCH SIZE 32
+        # patches = patches.flatten(0,1)
+        # patches = patches.reshape(1, patches.shape[0], patches.shape[1])
 
         #print(patches.shape)
         return patches
 
 
 class VideoTransformer(nn.Module):
-    def __init__(self, img_shape, patch_size, embed_dims, num_heads, layers, dropout=0.1, in_channels=3):
+    def __init__(self, img_shape, patch_size, embed_dims, num_heads, layers, dropout=0.1, in_channels=3, batch_size=16):
         super().__init__()
-        num_patch = 196#(img_shape[0] * img_shape[1] * img_shape[2]) // (patch_size **3)
+        num_patch = 196 #(img_shape[0] * img_shape[1] * img_shape[2]) // (patch_size **3)
 
         print(num_patch)
         self.patch_embed = ViTPatch(in_channels, patch_size, embed_dims)
@@ -84,31 +85,27 @@ class VideoTransformer(nn.Module):
         self.pos_embed = nn.Parameter(
                 torch.zeros(1, 1 + num_patch, embed_dims)
         )
-        self.pos_drop = nn.Dropout(dropout)
 
         self.blocks = nn.ModuleList([ViT(num_heads, embed_dims, dropout) for i in range(layers)])
 
         self.norm = nn.LayerNorm(embed_dims)
-        self.head = nn.Linear(embed_dims, 400)
+        self.prediction_head = nn.Linear(embed_dims, 400)
 
 
 
     def forward(self, x):
-        n_samples = x.shape[0]
         #x = x.permute(1, 0, 2, 3, 4)
+        #print("B", x.shape)
         x = self.patch_embed(x)
 
-        cls_token = self.cls_token.expand(
-                n_samples, -1, -1
-        )  # (n_samples, 1, embed_dim)
-        #print(x.shape, cls_token.shape)
+        cls_token = self.cls_token.expand(x.shape[0], -1, -1) 
+        #print(n_samples, x.shape, cls_token.shape)
         x = torch.cat((cls_token, x), dim=1) 
 
         #print(x.shape, self.pos_embed.shape)
         x = x + self.pos_embed
-        x = self.pos_drop(x)
 
-        print(x.shape)
+        #compute layer contirbution
         for block in self.blocks:
             x = block(x)
 
@@ -116,7 +113,7 @@ class VideoTransformer(nn.Module):
 
         cls_token_final = x[:, 0]  # just the CLS token
 
-        x = self.head(cls_token_final)
+        x = self.prediction_head(cls_token_final)
 
         return x
 
