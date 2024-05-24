@@ -94,6 +94,9 @@ class VideoTransformer(nn.Module):
 
 
     def forward(self, x):
+        #inspiration (and how to use a learnable positon embedding
+        #from https://github.com/jankrepl/mildlyoverfitted/blob/master/github_adventures/vision_transformer/custom.py
+
         #x = x.permute(1, 0, 2, 3, 4)
         #print("B", x.shape)
         x = self.patch_embed(x)

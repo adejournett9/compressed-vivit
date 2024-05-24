@@ -1,7 +1,14 @@
+'''
+Script to generate Figure 2 in the paper submission
+
+'''
+
 from mvextractor.videocap import VideoCap
 import os
 
 import matplotlib.pyplot as plt
+
+
 
 def main():
     folder = "test_vids"

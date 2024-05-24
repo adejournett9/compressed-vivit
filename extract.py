@@ -144,6 +144,31 @@ def decompress_fast(path):
         return torch.from_numpy(np.load(npy)['a'])
     return None
 
+def view_motion(path):
+    with torch.no_grad():
+        cap = VideoCap()
+        success = cap.open(path)
+        if not success:
+            return
+
+        mvs = None
+        frame_ct = 0
+        frames = []
+        fig, ax = plt.subplots(1,1)
+        while success:
+            success, frame, motion_vectors, frame_type, timestamp = cap.read()
+            if not success or frame_ct > 224:
+                break
+            frame = np.dstack((frame[:, :, 2], frame[:, :, 1], frame[:, :, 0])).reshape(224, 224, 3)
+            
+            frame = draw_motion_vectors(frame, motion_vectors)
+
+            im1 = ax.imshow(frame)
+            frames.append(im1)
+
+    ani = animation.ArtistAnimation(fig, frames, interval=50, repeat_delay=1000)
+    plt.show()
+
 def main():
     start = time.time()
     folder = "fmt_videos_test"
@@ -157,6 +182,8 @@ def main():
 
         for vid in vids:
             vpath = os.path.join(clsdir, vid)
+
+            #view_motion(vpath)
             if not os.path.exists(vpath[:-4] + ".npz"):
                 decompress(vpath)
                 num_vids += 1

@@ -32,7 +32,7 @@ def main():
 
     summary(model, (16, num_channels, 224, 224))
     model = model.to(device)
-    train(model, device, train_ds, test_ds, train_opts, exp_dir="vivit_compress_npz")
+    train(model, device, train_ds, test_ds, train_opts, exp_dir="vivit_intra_only")
 
 if __name__ == "__main__":
     main()

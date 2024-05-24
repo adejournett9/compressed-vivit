@@ -1,3 +1,7 @@
+'''
+Code to download Kinetics400 is modified from 
+https://colab.research.google.com/github/voxel51/fiftyone-examples/blob/master/examples/pytorchvideo_tutorial.ipynb
+'''
 from datetime import timedelta
 import json
 import os
